@@ -7,48 +7,62 @@
  * MIT Licensed.
  */
 
-const NodeHelper = require('node_helper');
-var async = require('async');
-var sys = require('sys');
-var exec = require('child_process').exec;
+const NodeHelper = require("node_helper");
+const async = require("async");
+const exec = require("child_process").exec;
+const url = require("url");
 
 module.exports = NodeHelper.create({
-  start: function() {
-    console.log('Starting node helper: ' + this.name);
-  },
+	start: function() {
+		console.log('Starting node helper: ' + this.name);
 
-  // Subclass socketNotificationReceived received.
-  socketNotificationReceived: function(notification, payload) {
-    var self = this;
+		var self = this;
 
-    if (notification === 'CONFIG') {
-      this.config = payload;
-      setInterval(function() {
-        self.getStats();
-      }, this.config.updateInterval);
-    }
-  },
+		this.expressApp.get('/dht-data', function(req, res) {
+			var query = url.parse(req.url, true).query;
 
-  getStats: function() {
-    var self = this;
-	var path = this.config.dht22Util + " ";
+			var stats = {
+				id: query.id,
+				temp: query.temp,
+				humidity: query.humidity,
+				room: query.room
+			};
+			self.sendSocketNotification("STATS", stats);
+			res.send({"received": JSON.stringify(stats)});
+		});
+	},
 
-    async.parallel([
-      //async.apply(exec, 'sudo /home/pi/bin/dht22 c 22'),
-      //async.apply(exec, 'sudo /home/pi/bin/dht22 f 22'),
-      //async.apply(exec, 'sudo /home/pi/bin/dht22 h 22'),
-      async.apply(exec, this.config.dht22util + ' c ' + this.config.dht22gpio),
-      async.apply(exec, this.config.dht22util + ' f ' + this.config.dht22gpio),
-      async.apply(exec, this.config.dht22util + ' h ' + this.config.dht22gpio)
-    ],
-    function (err, res) {
-      var stats = {};
-	  stats.celsius = res[0][0];
-	  stats.fahrenheit = res[1][0];
-	  stats.humidity = res[2][0];
-      //console.log(stats);
-      self.sendSocketNotification('STATS', stats);
-    });
-  },
+	// Subclass socketNotificationReceived received.
+	socketNotificationReceived: function(notification, payload) {
+		var self = this;
+
+		if (notification === 'CONFIG') {
+			this.config = payload;
+			setInterval(function() {
+				self.getStats();
+			}, this.config.updateInterval);
+		}
+	},
+
+	getStats: function() {
+		var self = this;
+		var path = self.config.dht22Util + " ";
+
+		var unit = self.config.tempUnit == 'fahrenheit' ? ' f ' : ' c ';
+
+		async.parallel([
+			async.apply(exec, self.config.dht22util + unit + self.config.dht22gpio),
+			async.apply(exec, self.config.dht22util + ' h ' + self.config.dht22gpio)
+		],
+		function (err, res) {
+			var stats = {
+				id: self.config.id,
+				temp: res[0][0],
+				humidity: res[1][0],
+				room: self.config.room
+			};
+			self.sendSocketNotification('STATS', stats);
+		});
+	},
 
 });
